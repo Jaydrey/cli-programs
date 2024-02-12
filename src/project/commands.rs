@@ -4,12 +4,15 @@ use crate::project::project_args::{
     CreateProject,
 };
 use std::{
+    env,
+    io::Write,
     process::Command,
     fs::{self, File},
     os::unix::fs::PermissionsExt,
-    process::exit,
+    // process::exit,
+    path::Path,
 };
-use std::io::Write;
+
 
 
 pub fn handle_project_command(project: ProjectCommand) -> Result<String, Box<dyn std::error::Error>> {
@@ -59,6 +62,12 @@ pub fn create_linux_project(project: &CreateProject) -> () {
     if let Err(_error) = result {
         return;
     }
+
+    // copy dockerfile to the project directory
+    add_dockerfile(&project.name);
+    // copy requirements.txt to project directory
+    add_requirements_txt(&project.name);
+
     // get in the folder
     if let Err(_error) = std::env::set_current_dir(&project.name) {
         eprintln!("Couldn't change directory to the project");
@@ -83,31 +92,54 @@ pub fn create_linux_project(project: &CreateProject) -> () {
         return;
     }
 
-    // write the packages to a requirements .txt file
-    let result = create_requirements_file(is_windows);
-    if result == false{
+    // create the django project with django-admin
+    let _result = create_django_project(is_windows, &project.name);
+    if result == false {
         return;
     }
 
-    // create the django project with django-admin
-    let _result = create_django_project(is_windows, &project.name);
-    return;
+    // add settings file
+    add_settings_py_file(&project.name);
 }
 
-fn remove_file(file_name: &str){
+fn remove_file<P: AsRef<Path>>(file_name: &P) -> bool{
 //     check if file exists
     if !fs::metadata(file_name).is_ok(){
-        exit(1);
+        // exit(1);
+        return true;
     }
     if let Err(error) = fs::remove_file(file_name){
         eprintln!("Failed to remove the file.\nError: {}", error);
-        exit(1);
+        // exit(1);
+        return false;
+    }
+    return true;
+}
+
+fn add_settings_py_file(project_name: &str) ->(){
+    // remove default settings py file
+    let project_dir = env::current_dir();
+    if let Err(_error) = project_dir{
+        eprintln!("Couldn't get the cwd");
+        return;
+    }
+    let settings_file = project_dir.unwrap().join(project_name).join("settings.py");
+    if remove_file(&settings_file) == false{
+        return;
+    }
+
+    let django_settings_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("settings.py");
+    let project_dir = env::current_dir();
+    let destination_dir = project_dir.unwrap().join(project_name).join("settings.py");
+
+    if let Err(_error) = fs::copy(django_settings_file, destination_dir){
+        eprintln!("Couldn't copy the django settings file to the project");
     }
 }
 
 fn create_django_project(is_windows: bool, project_name: &str) -> bool {
     if is_windows == false {
-        let mut child = Command::new("django-admin")
+        let child = Command::new("django-admin")
             .args(["startproject", project_name, "."])
             .spawn()
             .ok();
@@ -131,57 +163,17 @@ fn create_django_project(is_windows: bool, project_name: &str) -> bool {
     return false;
 }
 
-fn create_requirements_file(is_windows: bool) -> bool{
-    if is_windows == false{
-        if fs::metadata("requirements.txt").is_ok(){
-            return true;
-        }
-
-        let mut requirements_file = File::create("requirement.txt");
-        if let Err(error) = requirements_file{
-            eprintln!("Something went wrong while creating requirements.txt file\
-            \nError {:?}", error);
-            return false;
-        }
-
-        let packages = vec![
-          "django",
-            "djangorestframework",
-            "django-cors-headers",
-            "drf-spectacular",
-            "django-filter",
-            "python-decouple",
-            "djangorestframework-simplejwt",
-        ];
-
-        if let Ok(mut file) = requirements_file {
-            for package in packages {
-                if let Ok(result) = writeln!(file, "{}", package) {
-                    println!("writing to requirements.txt file .");
-                }
-            }
-        }
-
-        return true;
-    }
-    eprintln!("This command works on linux computers only");
-    return false;
-}
-
 fn add_django_packages(is_windows: bool) -> bool {
     if is_windows == false {
-        let mut child = Command::new("pip")
-            .args(["install", "django", "djangorestframework", "python-decouple", "django-cors-headers",
-                "django-filter", "drf-spectacular", "djangorestframework-simplejwt"])
+        let child = Command::new("pip")
+            .args(["install", "-r", "requirements.txt"])
             .spawn()
             .ok();
         if let Some(mut result) = child {
             let output = result.wait().ok();
             if let Some(result) = output {
                 if result.success() == true {
-
-                    println!("Successfully installed ¸\nDjango, \nDjangoRestFramework, ¸\nPython Decouple, \nDjango Cors Headers,\
-                     \nDjango Filters, \nDRF Spectacular and \nDRF Simple JWT");
+                    return result.success();
                 } else {
                     eprintln!("Something went wrong while installing django packages");
                 }
@@ -203,32 +195,36 @@ fn activate_venv(is_windows: bool) -> bool {
         // change permission of the file to be accessible by anyone
         if let Err(err) = fs::set_permissions("venv/bin/activate", fs::Permissions::from_mode(0o755)) {
             eprintln!("Failed to set execute permission for activation script: {}", err);
-            exit(1);
+            // exit(1);
+            return true;
         }
         // create a bash script file
-        let mut script_file = File::create("activate_venv.sh");
+        let script_file = File::create("activate_venv.sh");
         if let Err(error) = script_file{
             eprintln!("Something went wrong when creating the activate_venv bash file\
             \n Error: {}", error);
-            exit(1);
+            // exit(1);
+            return true;
         }
         // write to the script
         let script_content = r#"source venv/bin/activate"#;
         if let Err(error) = script_file.unwrap().write_all(script_content.as_bytes()){
             eprintln!("Something went wrong while writing to the activate_venv bash file\
             \nError: {}", error);
-            exit(1);
+            // exit(1);
+            return true;
         }
 
         // make the script executable
         if let Err(error) = Command::new("chmod").args(&["+x", "activate_venv.sh"]).status(){
             eprintln!("Something went wrong while making the file executable\
             \nError: {}", error);
-            exit(1);
+            // exit(1);
+            return true;
         }
 
         // execute the file
-        let mut child = Command::new("bash")
+        let child = Command::new("bash")
             .arg("activate_venv.sh")
             .spawn();
         if let Ok(mut result) = child {
@@ -259,7 +255,7 @@ fn activate_venv(is_windows: bool) -> bool {
 fn create_virtual_env(is_windows: bool) -> bool {
     if !fs::metadata("venv").is_ok() {
         if is_windows == false {
-            let mut child = Command::new("python3")
+            let child = Command::new("python3")
                 .args(["-m", "virtualenv", "venv"])
                 .spawn();
             if let Ok(mut result) = child {
@@ -287,6 +283,54 @@ fn create_virtual_env(is_windows: bool) -> bool {
     return false;
 }
 
+fn add_requirements_txt(project_name: &str) -> (){
+    let docker_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("requirements.txt");
+    let result = env::current_dir();
+
+    if let Err(_error) = result{
+        return;
+    }
+    let destination_dir = result.unwrap().join(project_name).join("requirements.txt");
+
+    // copy file
+    if let Err(_error) = fs::copy(docker_file, destination_dir){
+        eprintln!("Failed to copy the requirements.txt to the project");
+        return;
+    }
+    println!("Successfully copied the requirements.txt");
+    return;
+}
+
+fn add_dockerfile(project_name: &str) -> () {
+    let docker_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("Dockerfile");
+    let docker_compose_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("docker-compose.yml");
+    let result = env::current_dir();
+
+    if let Err(_error) = result{
+        // exit(1);
+        return;
+    }
+
+    // copy dockerfile
+    let destination_dir = result.unwrap().join(project_name).join("Dockerfile");
+    if let Err(_error) = fs::copy(docker_file, destination_dir){
+        eprintln!("Failed to copy the Dockerfile to the project");
+        // exit(1);
+        return;
+    }
+
+    // copy docker compose
+    let result = env::current_dir();
+    let destination_dir = result.unwrap().join(project_name).join("docker-compose.yml");
+    if let Err(_error) = fs::copy(docker_compose_file, destination_dir){
+        eprintln!("Failed to copy the docker-compose.yml file to the project");
+        // exit(1);
+        return;
+    }
+    println!("Successfully copied the Dockerfile and docker-compose.yml");
+    return;
+}
+
 fn create_project_directory(project_name: &str) -> Result<(), String> {
     if !fs::metadata(project_name).is_ok() {
         if let Err(err) = fs::create_dir(project_name) {
@@ -303,7 +347,7 @@ fn create_project_directory(project_name: &str) -> Result<(), String> {
 
 fn install_virtualenv(is_windows: bool) -> bool {
     if is_windows == false {
-        let mut child = Command::new("python3")
+        let child = Command::new("python3")
             .args(["-m", "pip", "install", "virtualenv"])
             .spawn()
             .ok();
@@ -328,7 +372,7 @@ fn install_virtualenv(is_windows: bool) -> bool {
 
 fn check_virtualenv_installed(is_windows: bool) -> bool {
     if is_windows == false {
-        let mut child = Command::new("sh")
+        let child = Command::new("sh")
             .args(["-c", "command", "-v", "virtualenv"])
             .spawn()
             .ok();
@@ -347,7 +391,7 @@ fn check_virtualenv_installed(is_windows: bool) -> bool {
 
 fn check_python_installed(is_windows: bool) -> bool {
     if is_windows == false {
-        let mut child = Command::new("which")
+        let child = Command::new("which")
             .arg("python3")
             .spawn()
             .ok();

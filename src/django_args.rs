@@ -23,9 +23,9 @@ pub struct DjangoArgs{
 pub enum DocumentType {
     /// Project commands
     Project(ProjectCommand),
-    // App commands
+    /// App commands
     App(AppCommand),
-    // env files commands
+    /// env files commands
     EnvFile(EnvFileCommand),
 }
 
