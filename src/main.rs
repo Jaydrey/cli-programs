@@ -13,7 +13,7 @@ fn main() {
 
     match args.document_type{
         DocumentType::Project(project) =>{
-            let _response = handle_project_command(project);
+            handle_project_command(project);
         } ,
         DocumentType::App(_app) => {},
         DocumentType::EnvFile(_env_file) => {},
