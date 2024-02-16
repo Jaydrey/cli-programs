@@ -6,23 +6,23 @@ use crate::project::project_args::{
 use std::{
     env,
     io::Write,
-    process::Command,
+    process::{Command, exit},
     fs::{self, File},
     os::unix::fs::PermissionsExt,
     // process::exit,
-    path::Path,
+    path::{Path, PathBuf},
 };
+use clap::error::ContextValue::String;
+use dialoguer::Input;
 
 
-
-pub fn handle_project_command(project: ProjectCommand) -> Result<String, Box<dyn std::error::Error>> {
+pub fn handle_project_command(project: ProjectCommand) -> () {
     let command = project.command;
     match command {
         ProjectSubCommand::Create(project) => {
             create_project(project);
         }
     }
-    Ok("".to_string())
 }
 
 pub fn create_project(project: CreateProject) -> () {
@@ -32,6 +32,11 @@ pub fn create_project(project: CreateProject) -> () {
         create_windows_project(&project);
     }
     create_linux_project(&project);
+    // let name = match(Input::new().with_prompt("What is your name?").interact()){
+    //     Ok(result) => result,
+    //     _ => "Give a valid name".to_string()
+    // };
+    // println!("Hello, {name}");
 }
 
 pub fn create_windows_project(_project: &CreateProject) -> () {
@@ -58,10 +63,7 @@ pub fn create_linux_project(project: &CreateProject) -> () {
         }
     }
     // create the project directory
-    let result = create_project_directory(&project.name);
-    if let Err(_error) = result {
-        return;
-    }
+    create_project_directory(&project.name);
 
     // copy dockerfile to the project directory
     add_dockerfile(&project.name);
@@ -80,18 +82,6 @@ pub fn create_linux_project(project: &CreateProject) -> () {
         return;
     }
 
-    // activate venv
-    let result = activate_venv(is_windows);
-    if result == false {
-        return;
-    }
-
-    // add python packages
-    let result = add_django_packages(is_windows);
-    if result == false {
-        return;
-    }
-
     // create the django project with django-admin
     let _result = create_django_project(is_windows, &project.name);
     if result == false {
@@ -100,15 +90,21 @@ pub fn create_linux_project(project: &CreateProject) -> () {
 
     // add settings file
     add_settings_py_file(&project.name);
+
+    // add virtual environment
+    add_dot_env_file(&project.name);
+
+    // add users app
+    add_users_app(&project.name);
 }
 
-fn remove_file<P: AsRef<Path>>(file_name: &P) -> bool{
+fn remove_file<P: AsRef<Path>>(file_name: &P) -> bool {
 //     check if file exists
-    if !fs::metadata(file_name).is_ok(){
+    if !fs::metadata(file_name).is_ok() {
         // exit(1);
         return true;
     }
-    if let Err(error) = fs::remove_file(file_name){
+    if let Err(error) = fs::remove_file(file_name) {
         eprintln!("Failed to remove the file.\nError: {}", error);
         // exit(1);
         return false;
@@ -116,24 +112,115 @@ fn remove_file<P: AsRef<Path>>(file_name: &P) -> bool{
     return true;
 }
 
-fn add_settings_py_file(project_name: &str) ->(){
+fn add_users_app(project_name: &str) -> () {
+    let project_dir = env::current_dir();
+    if let Err(_error) = project_dir {
+        eprintln!("Couldn't get the cwd");
+        exit(1);
+    }
+
+    let django_users_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("users");
+    let destination_dir = &project_dir.unwrap().join("users");
+
+    if let Err(_error) = fs::create_dir_all(&destination_dir) {
+        eprintln!("An error occured {:?}", _error);
+        exit(1);
+    }
+
+    if !django_users_dir.exists() {
+        eprintln!("Ensure that you have the django users app");
+        exit(1);
+    }
+
+    let users_files = match (fs::read_dir(django_users_dir)) {
+        Ok(values) => values,
+        _ => {
+            eprintln!("Couldn't read user app files");
+            exit(1);
+        }
+    };
+
+    for entry in users_files {
+        if let Ok(entry) = entry {
+            let entry = entry;
+            let entry_path = entry.path();
+
+            if let Err(error) = fs::copy(&entry_path, destination_dir.
+                join(&entry_path.
+                    file_name().
+                    unwrap().
+                    to_string_lossy().
+                    to_string())) {
+                eprintln!("Something went wrong while copying {:?}", entry_path.file_name());
+            }
+        }
+    }
+
+    let project_dir = env::current_dir();
+
+    // copy serializers.py
+    let serializers_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("serializers.py");
+    let destination_dir = project_dir.unwrap().join("users").join("serializers.py");
+    if let Err(_error) = fs::copy(serializers_file, destination_dir) {
+        eprintln!("Something went wrong file copying serializers.py file");
+    }
+
+    let project_dir = env::current_dir();
+
+    // copy urls.py
+    let urls_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("urls.py");
+    let destination_dir = project_dir.unwrap().join("users").join("urls.py");
+    if let Err(_error) = fs::copy(urls_file, destination_dir) {
+        eprintln!("Something went wrong file copying serializers.py file");
+    }
+
+    let project_dir = env::current_dir();
+
+    // copy filters.py
+    let filters_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("filters.py");
+    let destination_dir = project_dir.unwrap().join("users").join("filters.py");
+    if let Err(_error) = fs::copy(filters_file, destination_dir) {
+        eprintln!("Something went wrong file copying serializers.py file");
+    }
+
+    println!("Successfully created a django app, users");
+}
+
+fn add_dot_env_file(project_name: &str) -> () {
+    let project_dir = env::current_dir();
+    if let Err(_error) = project_dir {
+        eprintln!("Couldn't get the cwd");
+        exit(1);
+    }
+
+    let my_env_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("my_env");
+    let destination_dir = project_dir.unwrap().join(".env");
+    if let Err(_error) = fs::copy(my_env_file, destination_dir) {
+        eprintln!("Couldn't copy the .env file to the project");
+        exit(1);
+    }
+    println!("Successfully copied the .env file");
+}
+
+fn add_settings_py_file(project_name: &str) -> () {
     // remove default settings py file
     let project_dir = env::current_dir();
-    if let Err(_error) = project_dir{
+    if let Err(_error) = project_dir {
         eprintln!("Couldn't get the cwd");
         return;
     }
     let settings_file = project_dir.unwrap().join(project_name).join("settings.py");
-    if remove_file(&settings_file) == false{
+    if remove_file(&settings_file) == false {
         return;
     }
 
-    let django_settings_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("settings.py");
+    let django_settings_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("settings.py");
     let project_dir = env::current_dir();
     let destination_dir = project_dir.unwrap().join(project_name).join("settings.py");
 
-    if let Err(_error) = fs::copy(django_settings_file, destination_dir){
+    if let Err(_error) = fs::copy(django_settings_file, destination_dir) {
         eprintln!("Couldn't copy the django settings file to the project");
+        exit(1);
     }
 }
 
@@ -163,33 +250,6 @@ fn create_django_project(is_windows: bool, project_name: &str) -> bool {
     return false;
 }
 
-fn add_django_packages(is_windows: bool) -> bool {
-    if is_windows == false {
-        let child = Command::new("pip")
-            .args(["install", "-r", "requirements.txt"])
-            .spawn()
-            .ok();
-        if let Some(mut result) = child {
-            let output = result.wait().ok();
-            if let Some(result) = output {
-                if result.success() == true {
-                    return result.success();
-                } else {
-                    eprintln!("Something went wrong while installing django packages");
-                }
-                eprintln!("Something went wrong while installing django packages");
-                return result.success();
-            }
-            eprintln!("Something went wrong while installing django packages");
-            return false;
-        }
-        eprintln!("Something went wrong while installing django packages");
-        return false;
-    }
-    eprintln!("This command works on linux computers only");
-    return false;
-}
-
 fn activate_venv(is_windows: bool) -> bool {
     if is_windows == false {
         // change permission of the file to be accessible by anyone
@@ -200,7 +260,7 @@ fn activate_venv(is_windows: bool) -> bool {
         }
         // create a bash script file
         let script_file = File::create("activate_venv.sh");
-        if let Err(error) = script_file{
+        if let Err(error) = script_file {
             eprintln!("Something went wrong when creating the activate_venv bash file\
             \n Error: {}", error);
             // exit(1);
@@ -208,7 +268,7 @@ fn activate_venv(is_windows: bool) -> bool {
         }
         // write to the script
         let script_content = r#"source venv/bin/activate"#;
-        if let Err(error) = script_file.unwrap().write_all(script_content.as_bytes()){
+        if let Err(error) = script_file.unwrap().write_all(script_content.as_bytes()) {
             eprintln!("Something went wrong while writing to the activate_venv bash file\
             \nError: {}", error);
             // exit(1);
@@ -216,7 +276,7 @@ fn activate_venv(is_windows: bool) -> bool {
         }
 
         // make the script executable
-        if let Err(error) = Command::new("chmod").args(&["+x", "activate_venv.sh"]).status(){
+        if let Err(error) = Command::new("chmod").args(&["+x", "activate_venv.sh"]).status() {
             eprintln!("Something went wrong while making the file executable\
             \nError: {}", error);
             // exit(1);
@@ -235,7 +295,7 @@ fn activate_venv(is_windows: bool) -> bool {
                 } else {
                     eprintln!("Something went wrong while activating virtual envs");
                 }
-                remove_file("activate_venv.sh");
+                // remove_file("activate_venv.sh");
                 return result.success();
             }
             eprintln!("Something went wrong while activating virtual envs\
@@ -283,17 +343,17 @@ fn create_virtual_env(is_windows: bool) -> bool {
     return false;
 }
 
-fn add_requirements_txt(project_name: &str) -> (){
-    let docker_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("requirements.txt");
+fn add_requirements_txt(project_name: &str) -> () {
+    let docker_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("requirements.txt");
     let result = env::current_dir();
 
-    if let Err(_error) = result{
+    if let Err(_error) = result {
         return;
     }
     let destination_dir = result.unwrap().join(project_name).join("requirements.txt");
 
     // copy file
-    if let Err(_error) = fs::copy(docker_file, destination_dir){
+    if let Err(_error) = fs::copy(docker_file, destination_dir) {
         eprintln!("Failed to copy the requirements.txt to the project");
         return;
     }
@@ -302,18 +362,18 @@ fn add_requirements_txt(project_name: &str) -> (){
 }
 
 fn add_dockerfile(project_name: &str) -> () {
-    let docker_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("Dockerfile");
-    let docker_compose_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("docker-compose.yml");
+    let docker_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("Dockerfile");
+    let docker_compose_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("docker-compose.yml");
     let result = env::current_dir();
 
-    if let Err(_error) = result{
+    if let Err(_error) = result {
         // exit(1);
         return;
     }
 
     // copy dockerfile
     let destination_dir = result.unwrap().join(project_name).join("Dockerfile");
-    if let Err(_error) = fs::copy(docker_file, destination_dir){
+    if let Err(_error) = fs::copy(docker_file, destination_dir) {
         eprintln!("Failed to copy the Dockerfile to the project");
         // exit(1);
         return;
@@ -322,7 +382,7 @@ fn add_dockerfile(project_name: &str) -> () {
     // copy docker compose
     let result = env::current_dir();
     let destination_dir = result.unwrap().join(project_name).join("docker-compose.yml");
-    if let Err(_error) = fs::copy(docker_compose_file, destination_dir){
+    if let Err(_error) = fs::copy(docker_compose_file, destination_dir) {
         eprintln!("Failed to copy the docker-compose.yml file to the project");
         // exit(1);
         return;
@@ -331,17 +391,15 @@ fn add_dockerfile(project_name: &str) -> () {
     return;
 }
 
-fn create_project_directory(project_name: &str) -> Result<(), String> {
+fn create_project_directory(project_name: &str) -> () {
     if !fs::metadata(project_name).is_ok() {
         if let Err(err) = fs::create_dir(project_name) {
             println!("Failed to created django project {}", err);
-            return Err(format!("Failed to create django project {}\n Error: {}", project_name, err));
+            exit(1);
         }
         println!("Project folder {} created successfully", project_name);
-        return Ok(());
     }
     println!("Project folder {} already exists", project_name);
-    return Ok(());
 }
 
 
