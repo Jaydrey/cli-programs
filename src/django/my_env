@@ -19,3 +19,10 @@ EMAIL_USE_TLS=True
 EMAIL_HOST_USER="your_email_address"
 EMAIL_HOST_PASSWORD="email_password"
 
+# db
+PG_NAME=project_name
+PG_USER=postgres
+PG_PASSWORD=postgres
+PG_PORT=5432
+PG_HOST=localhost
+

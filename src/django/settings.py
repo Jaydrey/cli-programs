@@ -42,7 +42,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-ROOT_URLCONF = ##project_name.urls##
+ROOT_URLCONF = 'project_name.urls'
 AUTH_USER_MODEL = 'users.User'
 
 TEMPLATES = [
@@ -61,15 +61,16 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = ##project_name.wsgi.application##
+WSGI_APPLICATION = 'project_name.wsgi.application'
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'OPTIONS': {
-            'service': 'my_service',
-            'passfile': '.my_pgpass',
-        },
+        'NAME': config('PG_NAME', cast=str),
+        'USER': config('PG_USER', cast=str),
+        'PASSWORD': config('PG_PASSWORD', cast=str),
+        'HOST': config('PG_HOST', cast=str),
+        'PORT': config('PG_PORT', cast=int),
     }
 }
 
@@ -95,7 +96,7 @@ TIME_ZONE = config('TIME_ZONE', cast=str)
 
 USE_I18N = config('USE_I18N', cast=bool)
 
-USE_TZ = config('USE_TZ', cast=bool)
+USE_TZ = config('USE_TZ',)
 
 
 STATIC_URL = 'static/'
@@ -137,8 +138,8 @@ SIMPLE_JWT = {
 
 # spectacular swagger
 SPECTACULAR_SETTINGS = {
-    'TITLE': ##project_name API##
-    'DESCRIPTION': 'Xiaoma is a cab hailing application',
+    'TITLE': 'project_name API',
+    'DESCRIPTION': '',
     'VERSION': '1.0.0',
     ##OTHER SETTINGS##
 }
