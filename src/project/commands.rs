@@ -5,13 +5,13 @@ use crate::project::project_args::{
 };
 use std::{
     env,
-    io::Write,
+    io::{BufRead, BufReader, Write, BufWriter},
     process::{Command, exit},
     fs::{self, File},
-    os::unix::fs::PermissionsExt,
     // process::exit,
     path::{Path, PathBuf},
 };
+
 use clap::error::ContextValue::String;
 use dialoguer::Input;
 
@@ -91,11 +91,15 @@ pub fn create_linux_project(project: &CreateProject) -> () {
     // add settings file
     add_settings_py_file(&project.name);
 
+    // add project urls.py
+    add_project_urls_file(&project.name);
+
     // add virtual environment
-    add_dot_env_file(&project.name);
+    add_dot_env_file();
 
     // add users app
-    add_users_app(&project.name);
+    add_users_app();
+
 }
 
 fn remove_file<P: AsRef<Path>>(file_name: &P) -> bool {
@@ -112,7 +116,8 @@ fn remove_file<P: AsRef<Path>>(file_name: &P) -> bool {
     return true;
 }
 
-fn add_users_app(project_name: &str) -> () {
+
+fn add_users_app() -> () {
     let project_dir = env::current_dir();
     if let Err(_error) = project_dir {
         eprintln!("Couldn't get the cwd");
@@ -132,7 +137,7 @@ fn add_users_app(project_name: &str) -> () {
         exit(1);
     }
 
-    let users_files = match (fs::read_dir(django_users_dir)) {
+    let users_files = match fs::read_dir(django_users_dir) {
         Ok(values) => values,
         _ => {
             eprintln!("Couldn't read user app files");
@@ -145,7 +150,7 @@ fn add_users_app(project_name: &str) -> () {
             let entry = entry;
             let entry_path = entry.path();
 
-            if let Err(error) = fs::copy(&entry_path, destination_dir.
+            if let Err(_error) = fs::copy(&entry_path, destination_dir.
                 join(&entry_path.
                     file_name().
                     unwrap().
@@ -186,7 +191,7 @@ fn add_users_app(project_name: &str) -> () {
     println!("Successfully created a django app, users");
 }
 
-fn add_dot_env_file(project_name: &str) -> () {
+fn add_dot_env_file() -> () {
     let project_dir = env::current_dir();
     if let Err(_error) = project_dir {
         eprintln!("Couldn't get the cwd");
@@ -202,6 +207,70 @@ fn add_dot_env_file(project_name: &str) -> () {
     println!("Successfully copied the .env file");
 }
 
+fn add_project_urls_file(project_name: &str) -> (){
+    if let Ok(project_dir) = env::current_dir(){
+        let urls_file = &project_dir.join(project_name).join("urls.py");
+        if remove_file(urls_file) == false {
+            eprintln!("Error occurred deleting the projects urls.py file");
+            return;
+        }
+
+        let django_proj_urls_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("proj_urls.py");
+        let target_urls_file = &project_dir.join(project_name).join("urls.py");
+
+        if let Err(error) = fs::copy(django_proj_urls_file, target_urls_file){
+            eprintln!("An error occurred copying the django urls.py file, {:?}", error);
+            return;
+        }
+        println!("Successfully added the urls.py file");
+        return;
+    }
+}
+
+fn edit_settings_py_file(project_name: &str, django_settings: &PathBuf) -> () {
+    if let Ok(django_settings_file) = File::open(django_settings) {
+        let django_settings_reader = BufReader::new(django_settings_file);
+
+        if let Ok(project_dir) = env::current_dir() {
+            let new_settings_path = project_dir.join(project_name).join("settings.py");
+            if let Ok(settings_file) = File::create(new_settings_path) {
+                let mut settings_writer = BufWriter::new(settings_file);
+
+                for value in django_settings_reader.lines() {
+                    if let Ok(line) = value {
+                        // add the users app
+                        if line.contains("##django apps##") {
+                            let new_line = line.replace("##django apps##", "'users',\n\t##django apps##");
+                            if let Err(error) = writeln!(settings_writer, "{}", new_line) {
+                                eprintln!("Error occurred while adding users app {:?}", error);
+                            }
+                            continue;
+                        }
+
+                        // configure project name
+                        if line.contains("project_name") {
+                            let new_line = line.replace("project_name", format!("{}", project_name).as_str());
+                            if let Err(error) = writeln!(settings_writer, "{}", new_line) {
+                                eprintln!("Error occurred while configuring project name {:?}", error);
+                            }
+                            continue;
+                        }
+
+                        if let Err(error) = writeln!(settings_writer, "{}", line) {
+                            eprintln!("Error occurred while changing root urlconf {:?}", error);
+                        }
+                    }
+                }
+
+                //  ensure all changes are written to the file
+                if let Err(error) = settings_writer.flush() {
+                    eprintln!("Error occurred while editing settings file {:?}", error);
+                }
+            }
+        }
+    }
+}
+
 fn add_settings_py_file(project_name: &str) -> () {
     // remove default settings py file
     let project_dir = env::current_dir();
@@ -215,13 +284,8 @@ fn add_settings_py_file(project_name: &str) -> () {
     }
 
     let django_settings_file = Path::new(env!("CARGO_MANIFEST_DIR")).join("src").join("django").join("settings.py");
-    let project_dir = env::current_dir();
-    let destination_dir = project_dir.unwrap().join(project_name).join("settings.py");
 
-    if let Err(_error) = fs::copy(django_settings_file, destination_dir) {
-        eprintln!("Couldn't copy the django settings file to the project");
-        exit(1);
-    }
+    edit_settings_py_file(project_name, &django_settings_file);
 }
 
 fn create_django_project(is_windows: bool, project_name: &str) -> bool {
@@ -244,68 +308,6 @@ fn create_django_project(is_windows: bool, project_name: &str) -> bool {
             return false;
         }
         eprintln!("Something went wrong while creating the django project {}", project_name);
-        return false;
-    }
-    eprintln!("This command works on linux computers only");
-    return false;
-}
-
-fn activate_venv(is_windows: bool) -> bool {
-    if is_windows == false {
-        // change permission of the file to be accessible by anyone
-        if let Err(err) = fs::set_permissions("venv/bin/activate", fs::Permissions::from_mode(0o755)) {
-            eprintln!("Failed to set execute permission for activation script: {}", err);
-            // exit(1);
-            return true;
-        }
-        // create a bash script file
-        let script_file = File::create("activate_venv.sh");
-        if let Err(error) = script_file {
-            eprintln!("Something went wrong when creating the activate_venv bash file\
-            \n Error: {}", error);
-            // exit(1);
-            return true;
-        }
-        // write to the script
-        let script_content = r#"source venv/bin/activate"#;
-        if let Err(error) = script_file.unwrap().write_all(script_content.as_bytes()) {
-            eprintln!("Something went wrong while writing to the activate_venv bash file\
-            \nError: {}", error);
-            // exit(1);
-            return true;
-        }
-
-        // make the script executable
-        if let Err(error) = Command::new("chmod").args(&["+x", "activate_venv.sh"]).status() {
-            eprintln!("Something went wrong while making the file executable\
-            \nError: {}", error);
-            // exit(1);
-            return true;
-        }
-
-        // execute the file
-        let child = Command::new("bash")
-            .arg("activate_venv.sh")
-            .spawn();
-        if let Ok(mut result) = child {
-            let output = result.wait();
-            if let Ok(result) = output {
-                if result.success() == true {
-                    println!("Successfully activated the  virtual envs");
-                } else {
-                    eprintln!("Something went wrong while activating virtual envs");
-                }
-                // remove_file("activate_venv.sh");
-                return result.success();
-            }
-            eprintln!("Something went wrong while activating virtual envs\
-        \nError: {:?}
-        ", output.err());
-            return false;
-        }
-        eprintln!("Something went wrong while activating virtual envs\
-        \nError: {:?}
-        ", child.err());
         return false;
     }
     eprintln!("This command works on linux computers only");
@@ -467,3 +469,4 @@ fn check_python_installed(is_windows: bool) -> bool {
     eprintln!("This command works on linux computers only");
     return false;
 }
+
