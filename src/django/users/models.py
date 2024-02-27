@@ -47,13 +47,13 @@ class User(AbstractBaseUser, PermissionsMixin):
                           editable=False, primary_key=True)
     email = models.EmailField(_("email"),unique=True)
     phone_number = models.CharField(
-        _("phone number"), max_length=10,)
-    first_name = models.CharField(_("first name"), max_length=50, null=True, blank=True)
-    last_name = models.CharField(_("last name"), max_length=50, null=True, blank=True)
+        _("phone number"), max_length=10,null=True)
+    first_name = models.CharField(_("first name"), max_length=50,)
+    last_name = models.CharField(_("last name"), max_length=50,)
     profile_picture = models.URLField(_("profile picture"), null=True, blank=True)
     date_of_birth = models.DateField(_("date of birth"), null=True, blank=True)
-    gender = models.CharField(_("gender"), max_length=10, choices=GENDER_CHOICES, default="male")
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="project_manager")
+    gender = models.CharField(_("gender"), max_length=10, choices=GENDER_CHOICES, null=True)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, null=True)
     is_active = models.BooleanField(_("is active"), default=False)
     is_superuser = models.BooleanField(_("is super user"), default=False)
     is_staff = models.BooleanField(_("is staff"), default=False)
@@ -65,7 +65,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     USERNAME_FIELD = "email"
     EMAIL_FIELD = "email"
-    REQUIRED_FIELDS = ["phone_number",]
 
     objects = UserManager()
 
